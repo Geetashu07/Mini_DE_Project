@@ -1,0 +1,148 @@
+{
+  "name": "medallion_pipeline",
+  "email_notifications": {
+    "on_start": [],
+    "on_success": [],
+    "on_failure": ["your-email@example.com"]
+  },
+  "timeout_seconds": 3600,
+  "max_concurrent_runs": 1,
+  "schedule": {
+    "quartz_cron_expression": "0 0 2 * * ?",
+    "timezone_id": "America/Los_Angeles",
+    "pause_status": "UNPAUSED"
+  },
+  "tasks": [
+    {
+      "task_key": "bronze_ingestion",
+      "description": "Ingest raw data from Unity Catalog Volume to Bronze layer",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/your-repo/databricks-medallion-project/notebooks/bronze_ingestion/01_bronze_ingestion",
+        "base_parameters": {
+          "batch_id": "{{job_run_id}}"
+        }
+      },
+      "timeout_seconds": 1800,
+      "retry_on_timeout": false,
+      "max_retries": 2,
+      "min_retry_interval_millis": 60000,
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 2,
+        "spark_conf": {
+          "spark.databricks.cluster.profile": "singleNode",
+          "spark.master": "local[*]"
+        },
+        "custom_tags": {
+          "project": "medallion_architecture",
+          "layer": "bronze"
+        }
+      }
+    },
+    {
+      "task_key": "silver_transformation",
+      "description": "Transform and clean data from Bronze to Silver layer",
+      "depends_on": [
+        {
+          "task_key": "bronze_ingestion"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/your-repo/databricks-medallion-project/notebooks/silver_transformation/02_silver_transformation",
+        "base_parameters": {
+          "batch_id": "{{job_run_id}}"
+        }
+      },
+      "timeout_seconds": 1800,
+      "retry_on_timeout": false,
+      "max_retries": 2,
+      "min_retry_interval_millis": 60000,
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 2,
+        "spark_conf": {
+          "spark.databricks.cluster.profile": "singleNode",
+          "spark.master": "local[*]"
+        },
+        "custom_tags": {
+          "project": "medallion_architecture",
+          "layer": "silver"
+        }
+      }
+    },
+    {
+      "task_key": "gold_aggregation",
+      "description": "Aggregate and enrich data from Silver to Gold layer",
+      "depends_on": [
+        {
+          "task_key": "silver_transformation"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/your-repo/databricks-medallion-project/notebooks/gold_aggregation/03_gold_aggregation",
+        "base_parameters": {
+          "batch_id": "{{job_run_id}}"
+        }
+      },
+      "timeout_seconds": 1800,
+      "retry_on_timeout": false,
+      "max_retries": 2,
+      "min_retry_interval_millis": 60000,
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 2,
+        "spark_conf": {
+          "spark.databricks.cluster.profile": "singleNode",
+          "spark.master": "local[*]"
+        },
+        "custom_tags": {
+          "project": "medallion_architecture",
+          "layer": "gold"
+        }
+      }
+    },
+    {
+      "task_key": "validation_qc",
+      "description": "Run comprehensive data quality checks across all layers",
+      "depends_on": [
+        {
+          "task_key": "gold_aggregation"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/your-repo/databricks-medallion-project/validation/04_validation_qc",
+        "base_parameters": {
+          "batch_id": "{{job_run_id}}"
+        }
+      },
+      "timeout_seconds": 1800,
+      "retry_on_timeout": false,
+      "max_retries": 2,
+      "min_retry_interval_millis": 60000,
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 2,
+        "spark_conf": {
+          "spark.databricks.cluster.profile": "singleNode",
+          "spark.master": "local[*]"
+        },
+        "custom_tags": {
+          "project": "medallion_architecture",
+          "layer": "validation"
+        }
+      }
+    }
+  ],
+  "format": "MULTI_TASK",
+  "access_control_list": [
+    {
+      "user_name": "your-email@example.com",
+      "permission_level": "CAN_MANAGE"
+    }
+  ]
+}
+
