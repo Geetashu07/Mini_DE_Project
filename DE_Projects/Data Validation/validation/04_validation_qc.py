@@ -22,9 +22,13 @@
 
 # Import configuration
 import sys
-sys.path.append("/Workspace/Repos/your-repo/databricks-medallion-project")
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/config')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/utils')
 
-from config.project_config import (
+from project_config import *
+
+
+from project_config import (
     CATALOG_NAME, BRONZE_SCHEMA, SILVER_SCHEMA, GOLD_SCHEMA, VALIDATION_SCHEMA,
     BRONZE_CUSTOMERS_TABLE, BRONZE_PRODUCTS_TABLE, 
     BRONZE_STORES_TABLE, BRONZE_TRANSACTIONS_TABLE,
@@ -36,7 +40,7 @@ from config.project_config import (
     get_batch_id, get_ingestion_date
 )
 
-from utils.qc_framework import (
+from qc_framework import (
     check_row_count, check_nulls, check_duplicates,
     check_referential_integrity, check_value_range,
     check_valid_values, run_qc_checks, save_qc_results, QCResult
@@ -88,6 +92,11 @@ spark.sql(f"""
 """)
 
 print(f"Created validation results table: {VALIDATION_RESULTS_TABLE}")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC SELECT * FROM 
 
 # COMMAND ----------
 
@@ -460,8 +469,9 @@ print(f"{'='*60}")
 # MAGIC     failed_rows,
 # MAGIC     timestamp,
 # MAGIC     batch_id
-# MAGIC FROM medallion_project.validation.validation_results
-# MAGIC WHERE batch_id = '${batch_id}'
+# MAGIC FROM qc_validation.default.validation_results
+# MAGIC
+# MAGIC --WHERE batch_id = '${batch_id}'
 # MAGIC ORDER BY table_name, check_name
 
 # COMMAND ----------

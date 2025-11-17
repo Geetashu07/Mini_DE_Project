@@ -11,7 +11,7 @@ This module provides utility functions for common operations:
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     col, lit, current_timestamp, to_date, trim, upper, lower,
-    when, isnull, coalesce, regexp_replace, date_format, row_number
+    when, isnull, coalesce, regexp_replace, date_format, row_number,to_timestamp
 )
 from pyspark.sql.types import StructType
 from typing import List, Optional, Dict
@@ -38,6 +38,7 @@ def get_new_files(spark: SparkSession,
     Returns:
         List of file paths that are new
     """
+    print('Inside get_new_files -->')
     try:
         # Get all files matching the pattern using dbutils
         try:
@@ -126,6 +127,32 @@ def mark_file_as_processed(spark: SparkSession,
 # ============================================================================
 # Audit Column Management
 # ============================================================================
+
+def add_audit_columns_bronze(df: DataFrame,
+                     batch_id: str,
+                     _record_ingestion_ts ,
+                     source_file: str = None) -> DataFrame:
+    """
+    Add audit columns to DataFrame
+    
+    Args:
+        df: DataFrame to add audit columns to
+        batch_id: Batch ID for the current run
+        source_file: Source file name (optional)
+    
+    Returns:
+        DataFrame with audit columns added
+    """
+    df_with_audit = df \
+        .withColumn("_ingestion_date", to_date(current_timestamp())) \
+        .withColumn("_batch_id", lit(batch_id)) \
+        .withColumn("_updated_at", current_timestamp())\
+        .withColumn("_record_ingestion_ts", to_timestamp(lit(_record_ingestion_ts)))
+    
+    if source_file:
+        df_with_audit = df_with_audit.withColumn("_source_file", lit(source_file))
+    
+    return df_with_audit
 
 def add_audit_columns(df: DataFrame,
                      batch_id: str,
