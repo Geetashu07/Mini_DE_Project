@@ -23,6 +23,8 @@ import json
 
 class QCResult:
     """Class to store QC validation results"""
+
+    print('Inside QCResult class')
     
     def __init__(self, 
                  table_name: str,
@@ -241,6 +243,7 @@ def check_schema(df: DataFrame,
     Returns:
         QCResult object
     """
+    print('Inside check_schema -->')
     actual_schema = df.schema
     
     # Check column names
@@ -256,6 +259,7 @@ def check_schema(df: DataFrame,
             message.append(f"Missing columns: {missing_columns}")
         if extra_columns:
             message.append(f"Extra columns: {extra_columns}")
+        print('Calling QCResult -->')
         
         return QCResult(
             table_name=table_name,
@@ -279,7 +283,7 @@ def check_schema(df: DataFrame,
             status="WARNING",
             message=f"Type mismatches: {', '.join(type_mismatches)}"
         )
-    
+    print('Calling QCResult -->')
     return QCResult(
         table_name=table_name,
         check_name="schema_check",

@@ -23,10 +23,11 @@
 
 # Import configuration
 import sys
-sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Projects/Data Validation/config')
-sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Projects/Data Validation/utils')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/config')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/utils')
 
 from project_config import *
+from delta.tables import DeltaTable
 
 from project_config import (
     CATALOG_NAME, BRONZE_SCHEMA, SILVER_SCHEMA,
@@ -97,8 +98,11 @@ def transform_customers():
     start_time = time.time()
     
     # Read from Bronze
-    bronze_df = spark.table(BRONZE_CUSTOMERS_TABLE)
-    print(f"Read {bronze_df.count()} rows from Bronze")
+    if spark.catalog.tableExists('qc_validation.silver.silver_customers'):
+        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_customers where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_customers)""")
+        print(f"Read {bronze_df.count()} rows from Bronze")
+    else:
+        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_customers")
     
     # Clean string columns
     silver_df = clean_string_columns(bronze_df, ["customer_id", "name"])
@@ -145,11 +149,30 @@ def transform_customers():
     
     # Write to Silver
     print(f"\nWriting to {SILVER_CUSTOMERS_TABLE}...")
-    silver_df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .option("mergeSchema", "true") \
-        .saveAsTable(SILVER_CUSTOMERS_TABLE)
+    print(silver_df.count())
+    from delta.tables import DeltaTable
+
+    if not spark.catalog.tableExists('qc_validation.silver.silver_customers'):
+        silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_customers')
+    else:
+        (
+            DeltaTable.forName(spark, 'qc_validation.silver.silver_customers')
+            .alias("final")
+            .merge(
+                source=silver_df.alias("incr"),
+                condition="final.customer_id = incr.customer_id" 
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+
+    # silver_df.write \
+    #     .format("delta") \
+    #     .mode("overwrite") \
+    #     .option("mergeSchema", "true") \
+    #     .saveAsTable(SILVER_CUSTOMERS_TABLE)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -161,7 +184,7 @@ def transform_customers():
 
 # COMMAND ----------
 
-customers_qc_results = transform_customers()
+# customers_qc_results = transform_customers()
 
 # COMMAND ----------
 
@@ -179,7 +202,11 @@ def transform_products():
     start_time = time.time()
     
     # Read from Bronze
-    bronze_df = spark.table(BRONZE_PRODUCTS_TABLE)
+    if spark.catalog.tableExists('qc_validation.silver.silver_products'):
+        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_products where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_products)""")
+    else:
+        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_products")
+
     print(f"Read {bronze_df.count()} rows from Bronze")
     
     # Clean string columns
@@ -229,14 +256,29 @@ def transform_products():
         print(f"  {result.check_name}: {result.status} - {result.message}")
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
+    if not spark.catalog.tableExists('qc_validation.silver.silver_products'):
+        silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_products')
+    else:
+        (
+            DeltaTable.forName(spark, 'qc_validation.silver.silver_products')
+            .alias("final")
+            .merge(
+                source=silver_df.alias("incr"),
+                condition="final.product_key = incr.product_key"
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
     
     # Write to Silver
-    print(f"\nWriting to {SILVER_PRODUCTS_TABLE}...")
-    silver_df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .option("mergeSchema", "true") \
-        .saveAsTable(SILVER_PRODUCTS_TABLE)
+    # print(f"\nWriting to {SILVER_PRODUCTS_TABLE}...")
+    # silver_df.write \
+    #     .format("delta") \
+    #     .mode("overwrite") \
+    #     .option("mergeSchema", "true") \
+    #     .saveAsTable(SILVER_PRODUCTS_TABLE)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -249,7 +291,7 @@ def transform_products():
 # COMMAND ----------
 
 
-products_qc_results = transform_products()
+# products_qc_results = transform_products()
 
 # COMMAND ----------
 
@@ -267,7 +309,11 @@ def transform_stores():
     start_time = time.time()
     
     # Read from Bronze
-    bronze_df = spark.table(BRONZE_STORES_TABLE)
+    if spark.catalog.tableExists('qc_validation.silver.silver_stores'):
+        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_stores where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_stores)""")
+    else:
+        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_stores")
+
     print(f"Read {bronze_df.count()} rows from Bronze")
     
     # Clean string columns
@@ -314,13 +360,28 @@ def transform_stores():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    if not spark.catalog.tableExists('qc_validation.silver.silver_stores'):
+        silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_stores')
+    else:
+        (
+            DeltaTable.forName(spark, 'qc_validation.silver.silver_stores')
+            .alias("final")
+            .merge(
+                source=silver_df.alias("incr"),
+                condition="final.store_id = incr.store_id"
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+    
     # Write to Silver
-    print(f"\nWriting to {SILVER_STORES_TABLE}...")
-    silver_df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .option("mergeSchema", "true") \
-        .saveAsTable(SILVER_STORES_TABLE)
+    # print(f"\nWriting to {SILVER_STORES_TABLE}...")
+    # silver_df.write \
+    #     .format("delta") \
+    #     .mode("overwrite") \
+    #     .option("mergeSchema", "true") \
+    #     .saveAsTable(SILVER_STORES_TABLE)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -332,7 +393,8 @@ def transform_stores():
 
 # COMMAND ----------
 
-stores_qc_results = transform_stores()
+
+# stores_qc_results = transform_stores()
 
 # COMMAND ----------
 
@@ -350,7 +412,11 @@ def transform_transactions():
     start_time = time.time()
     
     # Read from Bronze
-    bronze_df = spark.table(BRONZE_TRANSACTIONS_TABLE)
+    if spark.catalog.tableExists('qc_validation.silver.silver_transactions'):
+        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_transactions where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_transactions)""")
+        
+    else:
+        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_transactions")
     print(f"Read {bronze_df.count()} rows from Bronze")
     
     # Clean string columns
@@ -454,13 +520,27 @@ def transform_transactions():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    if not spark.catalog.tableExists('qc_validation.silver.silver_transactions'):
+        silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_transactions')
+    else:
+        (
+            DeltaTable.forName(spark, 'qc_validation.silver.silver_transactions')
+            .alias("final")
+            .merge(
+                source=silver_df.alias("incr"),
+                condition="final.transaction_id = incr.transaction_id AND final.transaction_line_id = incr.transaction_line_id"
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
     # Write to Silver
-    print(f"\nWriting to {SILVER_TRANSACTIONS_TABLE}...")
-    silver_df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .option("mergeSchema", "true") \
-        .saveAsTable(SILVER_TRANSACTIONS_TABLE)
+    # print(f"\nWriting to {SILVER_TRANSACTIONS_TABLE}...")
+    # silver_df.write \
+    #     .format("delta") \
+    #     .mode("overwrite") \
+    #     .option("mergeSchema", "true") \
+    #     .saveAsTable(SILVER_TRANSACTIONS_TABLE)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -472,6 +552,7 @@ def transform_transactions():
 
 # COMMAND ----------
 
+
 transactions_qc_results = transform_transactions()
 
 # COMMAND ----------
@@ -481,25 +562,25 @@ transactions_qc_results = transform_transactions()
 
 # COMMAND ----------
 
-# Verify row counts
-print("Silver Layer Row Counts:")
-print("=" * 60)
+# # Verify row counts
+# print("Silver Layer Row Counts:")
+# print("=" * 60)
 
-tables = [
-    ("Customers", SILVER_CUSTOMERS_TABLE),
-    ("Products", SILVER_PRODUCTS_TABLE),
-    ("Stores", SILVER_STORES_TABLE),
-    ("Transactions", SILVER_TRANSACTIONS_TABLE)
-]
+# tables = [
+#     ("Customers", SILVER_CUSTOMERS_TABLE),
+#     ("Products", SILVER_PRODUCTS_TABLE),
+#     ("Stores", SILVER_STORES_TABLE),
+#     ("Transactions", SILVER_TRANSACTIONS_TABLE)
+# ]
 
-for table_name, table_path in tables:
-    try:
-        count = spark.sql(f"SELECT COUNT(*) as cnt FROM {table_path}").collect()[0]["cnt"]
-        print(f"{table_name:20s}: {count:>10,} rows")
-    except Exception as e:
-        print(f"{table_name:20s}: ERROR - {str(e)}")
+# for table_name, table_path in tables:
+#     try:
+#         count = spark.sql(f"SELECT COUNT(*) as cnt FROM {table_path}").collect()[0]["cnt"]
+#         print(f"{table_name:20s}: {count:>10,} rows")
+#     except Exception as e:
+#         print(f"{table_name:20s}: ERROR - {str(e)}")
 
-print("=" * 60)
+# print("=" * 60)
 
 # COMMAND ----------
 
@@ -508,25 +589,25 @@ print("=" * 60)
 
 # COMMAND ----------
 
-# Collect all QC results
-all_qc_results = customers_qc_results + products_qc_results + stores_qc_results + transactions_qc_results
+# # Collect all QC results
+# all_qc_results = customers_qc_results + products_qc_results + stores_qc_results + transactions_qc_results
 
-# Save QC results
-from project_config import VALIDATION_RESULTS_TABLE
-save_qc_results(spark, all_qc_results, VALIDATION_RESULTS_TABLE, batch_id)
+# # Save QC results
+# from project_config import VALIDATION_RESULTS_TABLE
+# save_qc_results(spark, all_qc_results, VALIDATION_RESULTS_TABLE, batch_id)
 
-print(f"""
-Silver Transformation Completed
-{'='*60}
-Batch ID: {batch_id}
-Ingestion Date: {ingestion_date}
-Completed At: {datetime.now()}
-Total QC Checks: {len(all_qc_results)}
-Passed: {len([r for r in all_qc_results if r.status == 'PASS'])}
-Failed: {len([r for r in all_qc_results if r.status == 'FAIL'])}
-Warnings: {len([r for r in all_qc_results if r.status == 'WARNING'])}
-{'='*60}
-""")
+# print(f"""
+# Silver Transformation Completed
+# {'='*60}
+# Batch ID: {batch_id}
+# Ingestion Date: {ingestion_date}
+# Completed At: {datetime.now()}
+# Total QC Checks: {len(all_qc_results)}
+# Passed: {len([r for r in all_qc_results if r.status == 'PASS'])}
+# Failed: {len([r for r in all_qc_results if r.status == 'FAIL'])}
+# Warnings: {len([r for r in all_qc_results if r.status == 'WARNING'])}
+# {'='*60}
+# """)
 
 # COMMAND ----------
 

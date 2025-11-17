@@ -15,14 +15,19 @@
 
 # COMMAND ----------
 
+# %sql
+# truncate table qc_validation.bronze.processed_files
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Step 1: Configuration Setup
 
 # COMMAND ----------
 
 import sys
-sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Projects/Data Validation/config')
-sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Projects/Data Validation/utils')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/config')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/utils')
 
 from project_config import *
 
@@ -33,6 +38,7 @@ from project_config import *
 # Import necessary configuration and utility modules
 # ----------------------------------------
 import sys
+from zoneinfo import ZoneInfo
 
 
 # Import project-level constants and config functions
@@ -51,7 +57,7 @@ from project_config import (
 
 # Import helper functions for ingestion logic
 from helpers import (
-    get_new_files, mark_file_as_processed,
+    get_new_files, mark_file_as_processed,add_audit_columns_bronze,
     add_audit_columns, create_table_if_not_exists
 )
 
@@ -71,6 +77,7 @@ import time
 # Initialize Spark session
 # ----------------------------------------
 spark = SparkSession.builder.appName("Bronze_Ingestion").getOrCreate()
+spark.conf.set("spark.sql.session.timeZone", "Asia/Kolkata")
 
 # Generate unique batch ID and ingestion timestamp for tracking
 batch_id = get_batch_id()
@@ -78,6 +85,13 @@ ingestion_date = get_ingestion_date()
 
 print(f"Starting Bronze Ingestion - Batch ID: {batch_id}")
 print(f"Ingestion Date: {ingestion_date}")
+_record_ingestion_ts = datetime.now(ZoneInfo("Asia/Kolkata"))
+_record_ingestion_str = _record_ingestion_ts.strftime("%Y-%m-%d %H:%M:%S")
+print(_record_ingestion_ts)
+spark.sql("SELECT current_timestamp()").show()
+
+
+
 
 # COMMAND ----------
 
@@ -126,11 +140,13 @@ def get_customers_schema():
     return StructType([
         StructField("customer_id", StringType(), True),
         StructField("name", StringType(), True),
-        StructField("signup_date", DateType(), True),
+        StructField("signup_date", StringType(), True),
         StructField("_batch_id", StringType(), True),
         StructField("_source_file", StringType(), True),
         StructField("_ingestion_date", TimestampType(), True),
-        StructField("_updated_at", TimestampType(), True)])
+        StructField("_updated_at", TimestampType(), True),
+        StructField("_record_ingestion_ts", TimestampType(), True)
+        ])
 
 # Schema for products data
 def get_products_schema():
@@ -142,7 +158,8 @@ def get_products_schema():
         StructField("_batch_id", StringType(), True),
         StructField("_source_file", StringType(), True),
         StructField("_ingestion_date", TimestampType(), True),
-        StructField("_updated_at", TimestampType(), True)])
+        StructField("_updated_at", TimestampType(), True),
+        StructField("_record_ingestion_ts", TimestampType(), True)])
 
 # Schema for stores data
 def get_stores_schema():
@@ -153,7 +170,8 @@ def get_stores_schema():
         StructField("_batch_id", StringType(), True),
         StructField("_source_file", StringType(), True),
         StructField("_ingestion_date", TimestampType(), True),
-        StructField("_updated_at", TimestampType(), True)
+        StructField("_updated_at", TimestampType(), True),
+        StructField("_record_ingestion_ts", TimestampType(), True)
     ])
 
 # Schema for transactions data
@@ -173,7 +191,8 @@ def get_transactions_schema():
         StructField("_batch_id", StringType(), True),
         StructField("_source_file", StringType(), True),
         StructField("_ingestion_date", TimestampType(), True),
-        StructField("_updated_at", TimestampType(), True)
+        StructField("_updated_at", TimestampType(), True),
+        StructField("_record_ingestion_ts", TimestampType(), True)
     ])
 
 # COMMAND ----------
@@ -198,6 +217,7 @@ def ingest_csv_to_bronze(entity_name: str,
     print(f"{'='*60}")
     
     start_time = time.time()
+
     
     # Step 1: List available CSV files in source volume
     try:
@@ -231,6 +251,7 @@ def ingest_csv_to_bronze(entity_name: str,
     except Exception as e:
         print(f"Error listing files using dbutils: {str(e)}")
         # Fallback to helper function
+        print('Calling get_new_files -->')
         new_files = get_new_files(spark, BRONZE_SOURCE_PATH, file_pattern, processed_files_table)
     
     # Exit if no new files are found
@@ -253,12 +274,17 @@ def ingest_csv_to_bronze(entity_name: str,
             df = spark.read \
                 .option("header", header) \
                 .option("inferSchema", "false") \
+                .option("ignoreEmptyLines", "true") \
+                .option("dateFormat", "dd/MM/yy")\
                 .schema(schema) \
                 .csv(file_path)
+            df = df.na.drop(how="all")
+
+            df.display()
             
             # Add audit columns for traceability
             file_name = file_path.split("/")[-1]
-            df = add_audit_columns(df, batch_id, file_name)
+            df = add_audit_columns_bronze(df, batch_id,_record_ingestion_ts, file_name)
             
             # Perform basic QC: row count
             row_count = df.count()
@@ -268,6 +294,7 @@ def ingest_csv_to_bronze(entity_name: str,
                 print(f"  WARNING: File {file_name} has no rows.")
             
             # Validate schema
+            print('Calling check_schema -->')
             schema_result = check_schema(df, target_table, schema)
             if schema_result.status == "FAIL":
                 raise Exception(f"Schema validation failed: {schema_result.message}")
@@ -276,7 +303,7 @@ def ingest_csv_to_bronze(entity_name: str,
             all_dataframes.append(df)
             
             # Record file as processed
-            print('Before mark_file_as_processed')
+            print('Calling mark_file_as_processed -->')
             mark_file_as_processed(spark, processed_files_table, file_path, batch_id, row_count)
             
         except Exception as e:
@@ -291,13 +318,28 @@ def ingest_csv_to_bronze(entity_name: str,
         
         total_rows = combined_df.count()
         print(f"\nTotal rows to ingest for {entity_name}: {total_rows}")
-        
+        print(combined_df.printSchema())
+        print(combined_df.columns)
+
+
+        if 'signup_date' in combined_df.columns:
+            combined_df = combined_df.withColumn(
+    "signup_date",
+    expr(
+        "cast(coalesce(try_to_date(signup_date, 'dd/MM/yyyy'), try_to_date(signup_date, 'dd/MM/yy')) as string)"
+    )
+)
+
+            combined_df.display()
+
         # Append new data into Bronze Delta table
         combined_df.write \
             .format("delta") \
             .mode("append") \
             .option("mergeSchema", "true") \
             .saveAsTable(target_table)
+        
+
         
         print(f"✅ Successfully ingested {total_rows} rows to {target_table}")
         
@@ -322,6 +364,8 @@ def ingest_csv_to_bronze(entity_name: str,
 # COMMAND ----------
 
 # Ingest customers CSV files into Bronze layer
+from pyspark.sql.functions import expr
+from pyspark.sql.functions import to_date, col, regexp_replace, trim
 ingest_csv_to_bronze(
     entity_name="customers",
     file_pattern=CUSTOMERS_FILE_PATTERN,

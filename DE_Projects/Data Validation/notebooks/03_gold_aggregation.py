@@ -22,9 +22,12 @@
 
 # Import configuration
 import sys
-sys.path.append("/Workspace/Repos/your-repo/databricks-medallion-project")
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/config')
+sys.path.append('/Workspace/Users/negigeetanshusingh@gmail.com/Mini_DE_Project/DE_Projects/Data Validation/utils')
 
-from config.project_config import (
+from project_config import *
+
+from project_config import (
     CATALOG_NAME, SILVER_SCHEMA, GOLD_SCHEMA,
     SILVER_CUSTOMERS_TABLE, SILVER_PRODUCTS_TABLE,
     SILVER_STORES_TABLE, SILVER_TRANSACTIONS_TABLE,
@@ -33,9 +36,14 @@ from config.project_config import (
     get_batch_id, get_ingestion_date
 )
 
-from utils.qc_framework import (
+from qc_framework import (
     check_row_count, check_value_range, run_qc_checks, save_qc_results
 )
+
+from helpers import (
+     add_audit_columns
+)
+
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -117,8 +125,9 @@ def create_customer_summary():
             coalesce(customer_stats["total_discount"], lit(0.0)).alias("total_discount"),
             coalesce(customer_stats["avg_unit_price"], lit(0.0)).alias("avg_unit_price"),
             customer_stats["last_transaction_date"],
-            current_timestamp().alias("_updated_at")
-        )
+            current_timestamp().alias("_updated_at"),
+            customers_df["_record_ingestion_ts"])
+        
     
     # QC checks
     print("\nRunning QC checks...")
@@ -139,10 +148,14 @@ def create_customer_summary():
     
     # Write to Gold
     print(f"\nWriting to {GOLD_CUSTOMER_SUMMARY_TABLE}...")
+    customer_summary.display()
+    # Add audit columns
+    customer_summary = add_audit_columns(customer_summary, batch_id)
+    customer_summary.display()
     customer_summary.write \
         .format("delta") \
         .mode("overwrite") \
-        .option("mergeSchema", "true") \
+        .option("overwriteSchema", "true") \
         .saveAsTable(GOLD_CUSTOMER_SUMMARY_TABLE)
     
     row_count = customer_summary.count()
@@ -215,7 +228,8 @@ def create_product_sales():
             coalesce(product_stats["max_selling_price"], lit(0.0)).alias("max_selling_price"),
             coalesce(product_stats["unique_customers"], lit(0)).alias("unique_customers"),
             coalesce(product_stats["unique_stores"], lit(0)).alias("unique_stores"),
-            current_timestamp().alias("_updated_at")
+            current_timestamp().alias("_updated_at"),
+            products_df["_record_ingestion_ts"]
         )
     
     # QC checks
@@ -235,6 +249,8 @@ def create_product_sales():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    # Add audit columns
+    product_sales = add_audit_columns(product_sales, batch_id)
     # Write to Gold
     print(f"\nWriting to {GOLD_PRODUCT_SALES_TABLE}...")
     product_sales.write \
@@ -309,7 +325,8 @@ def create_store_performance():
             coalesce(store_stats["total_discount"], lit(0.0)).alias("total_discount"),
             coalesce(store_stats["avg_transaction_value"], lit(0.0)).alias("avg_transaction_value"),
             store_stats["last_transaction_date"],
-            current_timestamp().alias("_updated_at")
+            current_timestamp().alias("_updated_at"),
+            stores_df["_record_ingestion_ts"]
         )
     
     # QC checks
@@ -329,6 +346,8 @@ def create_store_performance():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    # Add audit columns
+    store_performance = add_audit_columns(store_performance, batch_id)
     # Write to Gold
     print(f"\nWriting to {GOLD_STORE_PERFORMANCE_TABLE}...")
     store_performance.write \
@@ -370,7 +389,7 @@ def create_daily_sales():
     # Calculate daily sales
     daily_sales = transactions_df \
         .withColumn("sale_date", date_format(col("transaction_ts"), "yyyy-MM-dd")) \
-        .groupBy("sale_date") \
+        .groupBy("sale_date","_record_ingestion_ts") \
         .agg(
             count("transaction_id").alias("total_transactions"),
             countDistinct("transaction_id").alias("unique_transactions"),
@@ -407,6 +426,9 @@ def create_daily_sales():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    # Add audit columns
+    daily_sales = add_audit_columns(daily_sales, batch_id)
+    #daily_sales.display()
     # Write to Gold
     print(f"\nWriting to {GOLD_DAILY_SALES_TABLE}...")
     daily_sales.write \
@@ -461,30 +483,30 @@ print("=" * 60)
 
 # COMMAND ----------
 
-# Collect all QC results
-all_qc_results = (
-    customer_summary_qc_results + 
-    product_sales_qc_results + 
-    store_performance_qc_results + 
-    daily_sales_qc_results
-)
+# # Collect all QC results
+# all_qc_results = (
+#     customer_summary_qc_results + 
+#     product_sales_qc_results + 
+#     store_performance_qc_results + 
+#     daily_sales_qc_results
+# )
 
-# Save QC results
-from config.project_config import VALIDATION_RESULTS_TABLE
-save_qc_results(spark, all_qc_results, VALIDATION_RESULTS_TABLE, batch_id)
+# # Save QC results
+# from project_config import VALIDATION_RESULTS_TABLE
+# save_qc_results(spark, all_qc_results, VALIDATION_RESULTS_TABLE, batch_id)
 
-print(f"""
-Gold Aggregation Completed
-{'='*60}
-Batch ID: {batch_id}
-Ingestion Date: {ingestion_date}
-Completed At: {datetime.now()}
-Total QC Checks: {len(all_qc_results)}
-Passed: {len([r for r in all_qc_results if r.status == 'PASS'])}
-Failed: {len([r for r in all_qc_results if r.status == 'FAIL'])}
-Warnings: {len([r for r in all_qc_results if r.status == 'WARNING'])}
-{'='*60}
-""")
+# print(f"""
+# Gold Aggregation Completed
+# {'='*60}
+# Batch ID: {batch_id}
+# Ingestion Date: {ingestion_date}
+# Completed At: {datetime.now()}
+# Total QC Checks: {len(all_qc_results)}
+# Passed: {len([r for r in all_qc_results if r.status == 'PASS'])}
+# Failed: {len([r for r in all_qc_results if r.status == 'FAIL'])}
+# Warnings: {len([r for r in all_qc_results if r.status == 'WARNING'])}
+# {'='*60}
+# """)
 
 # COMMAND ----------
 
@@ -493,59 +515,59 @@ Warnings: {len([r for r in all_qc_results if r.status == 'WARNING'])}
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Top 10 customers by total sales
-# MAGIC SELECT 
-# MAGIC     customer_id,
-# MAGIC     name,
-# MAGIC     total_sales,
-# MAGIC     total_transactions,
-# MAGIC     total_quantity
-# MAGIC FROM medallion_project.gold.gold_customer_summary
-# MAGIC ORDER BY total_sales DESC
-# MAGIC LIMIT 10
+# %sql
+# -- Top 10 customers by total sales
+# SELECT 
+#     customer_id,
+#     name,
+#     total_sales,
+#     total_transactions,
+#     total_quantity
+# FROM medallion_project.gold.gold_customer_summary
+# ORDER BY total_sales DESC
+# LIMIT 10
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Top 10 products by revenue
-# MAGIC SELECT 
-# MAGIC     sku,
-# MAGIC     category,
-# MAGIC     total_revenue,
-# MAGIC     total_quantity_sold,
-# MAGIC     unique_customers
-# MAGIC FROM medallion_project.gold.gold_product_sales
-# MAGIC ORDER BY total_revenue DESC
-# MAGIC LIMIT 10
+# %sql
+# -- Top 10 products by revenue
+# SELECT 
+#     sku,
+#     category,
+#     total_revenue,
+#     total_quantity_sold,
+#     unique_customers
+# FROM medallion_project.gold.gold_product_sales
+# ORDER BY total_revenue DESC
+# LIMIT 10
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Store performance by region
-# MAGIC SELECT 
-# MAGIC     region,
-# MAGIC     COUNT(*) as store_count,
-# MAGIC     SUM(total_revenue) as total_revenue,
-# MAGIC     SUM(total_transactions) as total_transactions,
-# MAGIC     AVG(avg_transaction_value) as avg_transaction_value
-# MAGIC FROM medallion_project.gold.gold_store_performance
-# MAGIC GROUP BY region
-# MAGIC ORDER BY total_revenue DESC
+# %sql
+# -- Store performance by region
+# SELECT 
+#     region,
+#     COUNT(*) as store_count,
+#     SUM(total_revenue) as total_revenue,
+#     SUM(total_transactions) as total_transactions,
+#     AVG(avg_transaction_value) as avg_transaction_value
+# FROM medallion_project.gold.gold_store_performance
+# GROUP BY region
+# ORDER BY total_revenue DESC
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Daily sales trend
-# MAGIC SELECT 
-# MAGIC     sale_date,
-# MAGIC     total_revenue,
-# MAGIC     total_transactions,
-# MAGIC     unique_customers,
-# MAGIC     avg_transaction_value
-# MAGIC FROM medallion_project.gold.gold_daily_sales
-# MAGIC ORDER BY sale_date DESC
-# MAGIC LIMIT 30
+# %sql
+# -- Daily sales trend
+# SELECT 
+#     sale_date,
+#     total_revenue,
+#     total_transactions,
+#     unique_customers,
+#     avg_transaction_value
+# FROM medallion_project.gold.gold_daily_sales
+# ORDER BY sale_date DESC
+# LIMIT 30
 
 # COMMAND ----------
 
