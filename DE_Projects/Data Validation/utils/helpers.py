@@ -483,3 +483,47 @@ def log_processing_stats(spark: SparkSession,
     ========================================
     """)
 
+
+#=============================================================================
+#Logging Refresh time of the table
+#=============================================================================
+from pyspark.sql import SparkSession, Row, DataFrame
+from datetime import datetime
+
+def load_audit(
+    spark: SparkSession,
+    df: DataFrame,
+    batch_id: str,
+    table_name: str,
+    max_df_time: datetime,
+    start_time: datetime,
+    end_time: datetime
+):
+    """
+    Logs data load metadata into the load_audit table.
+    """
+    # Build a temporary single-row audit DataFrame
+    temp_data = [
+        Row(
+            batch_id=batch_id,
+            table_name=table_name,
+            log_ts=max_df_time,
+            start_time=start_time,
+            end_time=end_time
+        )
+    ]
+    
+    audit_df = spark.createDataFrame(temp_data)
+
+    # Display for debugging
+    display(audit_df)
+    
+    # Create table if it doesn't exist
+    if not spark.catalog.tableExists("qc_validation.default.load_audit"):
+        audit_df.limit(0).write.saveAsTable("qc_validation.default.load_audit")
+
+    # Append audit record
+    audit_df.write.mode("append").saveAsTable("qc_validation.default.load_audit")
+
+
+
