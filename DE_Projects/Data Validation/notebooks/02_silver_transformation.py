@@ -155,7 +155,7 @@ def transform_customers():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
-    # Write to Silver
+    # Write to Silver using Delta Lake merge
     print(f"\nWriting to {SILVER_CUSTOMERS_TABLE}...")
     print(silver_df.count())
     from delta.tables import DeltaTable
@@ -174,15 +174,10 @@ def transform_customers():
             .whenNotMatchedInsertAll()
             .execute()
         )
-
-
-    # silver_df.write \
-    #     .format("delta") \
-    #     .mode("overwrite") \
-    #     .option("mergeSchema", "true") \
-    #     .saveAsTable(SILVER_CUSTOMERS_TABLE)
-
-        end_time=time.time()
+    
+    # Track load audit for both initial and incremental loads
+    if silver_df.count() > 0:
+        end_time = time.time()
         end_ts = datetime.now()
         max_df_time = silver_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
         load_audit(spark,
@@ -219,14 +214,21 @@ def transform_products():
     print(f"{'='*60}")
     
     start_time = time.time()
+    start_ts = datetime.now()
     
-    # Read from Bronze
+    # Read from Bronze with incremental logic using load_audit table
     if spark.catalog.tableExists('qc_validation.silver.silver_products'):
-        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_products where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_products)""")
+        bronze_df = spark.sql("""SELECT *
+        FROM qc_validation.bronze.bronze_products
+        WHERE _record_ingestion_ts > COALESCE(
+            (SELECT MAX(log_ts) FROM qc_validation.default.load_audit 
+             WHERE table_name='qc_validation.silver.silver_products'),
+            TIMESTAMP('1900-01-01 00:00:00')
+        )""")
+        print(f"Read {bronze_df.count()} rows from Bronze (incremental)")
     else:
-        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_products")
-
-    print(f"Read {bronze_df.count()} rows from Bronze")
+        bronze_df = spark.sql(f"SELECT * FROM qc_validation.bronze.bronze_products")
+        print(f"Read {bronze_df.count()} rows from Bronze (initial load)")
     
     # Clean string columns
     silver_df = clean_string_columns(bronze_df, ["sku", "product_key", "category"])
@@ -275,6 +277,11 @@ def transform_products():
         print(f"  {result.check_name}: {result.status} - {result.message}")
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
+    
+    # Write to Silver using Delta Lake merge
+    print(f"\nWriting to {SILVER_PRODUCTS_TABLE}...")
+    print(silver_df.count())
+    
     if not spark.catalog.tableExists('qc_validation.silver.silver_products'):
         silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_products')
     else:
@@ -289,15 +296,19 @@ def transform_products():
             .whenNotMatchedInsertAll()
             .execute()
         )
-
     
-    # Write to Silver
-    # print(f"\nWriting to {SILVER_PRODUCTS_TABLE}...")
-    # silver_df.write \
-    #     .format("delta") \
-    #     .mode("overwrite") \
-    #     .option("mergeSchema", "true") \
-    #     .saveAsTable(SILVER_PRODUCTS_TABLE)
+    # Track load audit for both initial and incremental loads
+    if silver_df.count() > 0:
+        end_time = time.time()
+        end_ts = datetime.now()
+        max_df_time = silver_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
+        load_audit(spark,
+                silver_df,
+                batch_id,
+                'qc_validation.silver.silver_products',
+                max_df_time,
+                start_ts,
+                end_ts)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -326,14 +337,21 @@ def transform_stores():
     print(f"{'='*60}")
     
     start_time = time.time()
+    start_ts = datetime.now()
     
-    # Read from Bronze
+    # Read from Bronze with incremental logic using load_audit table
     if spark.catalog.tableExists('qc_validation.silver.silver_stores'):
-        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_stores where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_stores)""")
+        bronze_df = spark.sql("""SELECT *
+        FROM qc_validation.bronze.bronze_stores
+        WHERE _record_ingestion_ts > COALESCE(
+            (SELECT MAX(log_ts) FROM qc_validation.default.load_audit 
+             WHERE table_name='qc_validation.silver.silver_stores'),
+            TIMESTAMP('1900-01-01 00:00:00')
+        )""")
+        print(f"Read {bronze_df.count()} rows from Bronze (incremental)")
     else:
-        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_stores")
-
-    print(f"Read {bronze_df.count()} rows from Bronze")
+        bronze_df = spark.sql(f"SELECT * FROM qc_validation.bronze.bronze_stores")
+        print(f"Read {bronze_df.count()} rows from Bronze (initial load)")
     
     # Clean string columns
     silver_df = clean_string_columns(bronze_df, ["store_id", "name", "region"])
@@ -379,6 +397,10 @@ def transform_stores():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    # Write to Silver using Delta Lake merge
+    print(f"\nWriting to {SILVER_STORES_TABLE}...")
+    print(silver_df.count())
+    
     if not spark.catalog.tableExists('qc_validation.silver.silver_stores'):
         silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_stores')
     else:
@@ -394,13 +416,18 @@ def transform_stores():
             .execute()
         )
     
-    # Write to Silver
-    # print(f"\nWriting to {SILVER_STORES_TABLE}...")
-    # silver_df.write \
-    #     .format("delta") \
-    #     .mode("overwrite") \
-    #     .option("mergeSchema", "true") \
-    #     .saveAsTable(SILVER_STORES_TABLE)
+    # Track load audit for both initial and incremental loads
+    if silver_df.count() > 0:
+        end_time = time.time()
+        end_ts = datetime.now()
+        max_df_time = silver_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
+        load_audit(spark,
+                silver_df,
+                batch_id,
+                'qc_validation.silver.silver_stores',
+                max_df_time,
+                start_ts,
+                end_ts)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
@@ -413,7 +440,7 @@ def transform_stores():
 # COMMAND ----------
 
 
-# stores_qc_results = transform_stores()
+stores_qc_results = transform_stores()
 
 # COMMAND ----------
 
@@ -429,14 +456,21 @@ def transform_transactions():
     print(f"{'='*60}")
     
     start_time = time.time()
+    start_ts = datetime.now()
     
-    # Read from Bronze
+    # Read from Bronze with incremental logic using load_audit table
     if spark.catalog.tableExists('qc_validation.silver.silver_transactions'):
-        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_transactions where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_transactions)""")
-        
+        bronze_df = spark.sql("""SELECT *
+        FROM qc_validation.bronze.bronze_transactions
+        WHERE _record_ingestion_ts > COALESCE(
+            (SELECT MAX(log_ts) FROM qc_validation.default.load_audit 
+             WHERE table_name='qc_validation.silver.silver_transactions'),
+            TIMESTAMP('1900-01-01 00:00:00')
+        )""")
+        print(f"Read {bronze_df.count()} rows from Bronze (incremental)")
     else:
-        bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_transactions")
-    print(f"Read {bronze_df.count()} rows from Bronze")
+        bronze_df = spark.sql(f"SELECT * FROM qc_validation.bronze.bronze_transactions")
+        print(f"Read {bronze_df.count()} rows from Bronze (initial load)")
     
     # Clean string columns
     silver_df = clean_string_columns(bronze_df, [
@@ -539,6 +573,10 @@ def transform_transactions():
         if result.status == "FAIL":
             raise Exception(f"QC check failed: {result.message}")
     
+    # Write to Silver using Delta Lake merge
+    print(f"\nWriting to {SILVER_TRANSACTIONS_TABLE}...")
+    print(silver_df.count())
+    
     if not spark.catalog.tableExists('qc_validation.silver.silver_transactions'):
         silver_df.write.format("delta").saveAsTable('qc_validation.silver.silver_transactions')
     else:
@@ -553,13 +591,19 @@ def transform_transactions():
             .whenNotMatchedInsertAll()
             .execute()
         )
-    # Write to Silver
-    # print(f"\nWriting to {SILVER_TRANSACTIONS_TABLE}...")
-    # silver_df.write \
-    #     .format("delta") \
-    #     .mode("overwrite") \
-    #     .option("mergeSchema", "true") \
-    #     .saveAsTable(SILVER_TRANSACTIONS_TABLE)
+    
+    # Track load audit for both initial and incremental loads
+    if silver_df.count() > 0:
+        end_time = time.time()
+        end_ts = datetime.now()
+        max_df_time = silver_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
+        load_audit(spark,
+                silver_df,
+                batch_id,
+                'qc_validation.silver.silver_transactions',
+                max_df_time,
+                start_ts,
+                end_ts)
     
     row_count = silver_df.count()
     processing_time = time.time() - start_time
