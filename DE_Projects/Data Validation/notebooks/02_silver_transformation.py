@@ -43,7 +43,7 @@ from project_config import (
 from helpers import (
     clean_string_columns, standardize_string_case,
     handle_nulls, remove_duplicates, add_audit_columns,
-    convert_data_types, merge_data
+    convert_data_types, merge_data,load_audit
 )
 
 from qc_framework import (
@@ -96,10 +96,18 @@ def transform_customers():
     print(f"{'='*60}")
     
     start_time = time.time()
+    start_ts = datetime.now()
+    
     
     # Read from Bronze
     if spark.catalog.tableExists('qc_validation.silver.silver_customers'):
-        bronze_df=spark.sql("""select * from qc_validation.bronze.bronze_customers where  _record_ingestion_ts> (select max (_record_ingestion_ts) from qc_validation.silver.silver_customers)""")
+        bronze_df=spark.sql("""SELECT *
+        FROM qc_validation.bronze.bronze_customers
+        WHERE _record_ingestion_ts > COALESCE(
+            (SELECT MAX(log_ts) FROM qc_validation.default.load_audit where table_name='qc_validation.silver.silver_customers'
+),
+            TIMESTAMP('1900-01-01 00:00:00')
+        )""")
         print(f"Read {bronze_df.count()} rows from Bronze")
     else:
         bronze_df=spark.sql(f"select * from qc_validation.bronze.bronze_customers")
@@ -173,7 +181,18 @@ def transform_customers():
     #     .mode("overwrite") \
     #     .option("mergeSchema", "true") \
     #     .saveAsTable(SILVER_CUSTOMERS_TABLE)
-    
+
+        end_time=time.time()
+        end_ts = datetime.now()
+        max_df_time = silver_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
+        load_audit(spark,
+                silver_df,
+                batch_id,
+                'qc_validation.silver.silver_customers',
+                max_df_time,
+                start_ts,
+                end_ts)
+        
     row_count = silver_df.count()
     processing_time = time.time() - start_time
     
@@ -184,7 +203,7 @@ def transform_customers():
 
 # COMMAND ----------
 
-# customers_qc_results = transform_customers()
+customers_qc_results = transform_customers()
 
 # COMMAND ----------
 
@@ -291,7 +310,7 @@ def transform_products():
 # COMMAND ----------
 
 
-# products_qc_results = transform_products()
+products_qc_results = transform_products()
 
 # COMMAND ----------
 

@@ -58,7 +58,7 @@ from project_config import (
 # Import helper functions for ingestion logic
 from helpers import (
     get_new_files, mark_file_as_processed,add_audit_columns_bronze,
-    add_audit_columns, create_table_if_not_exists
+    add_audit_columns, create_table_if_not_exists,load_audit
 )
 
 # Import Quality Check (QC) framework utilities
@@ -217,6 +217,7 @@ def ingest_csv_to_bronze(entity_name: str,
     print(f"{'='*60}")
     
     start_time = time.time()
+    start_ts = datetime.now(ZoneInfo("Asia/Kolkata"))
 
     
     # Step 1: List available CSV files in source volume
@@ -294,7 +295,7 @@ def ingest_csv_to_bronze(entity_name: str,
                 print(f"  WARNING: File {file_name} has no rows.")
             
             # Validate schema
-            print('Calling check_schema -->')
+            print('Calling check_schema from ingest_csv_to_bronze-->')
             schema_result = check_schema(df, target_table, schema)
             if schema_result.status == "FAIL":
                 raise Exception(f"Schema validation failed: {schema_result.message}")
@@ -330,9 +331,12 @@ def ingest_csv_to_bronze(entity_name: str,
     )
 )
 
-            combined_df.display()
+        combined_df.display()
+        
+        
 
         # Append new data into Bronze Delta table
+
         combined_df.write \
             .format("delta") \
             .mode("append") \
@@ -350,6 +354,18 @@ def ingest_csv_to_bronze(entity_name: str,
         
         for result in qc_results:
             print(f"  {result.check_name}: {result.status} - {result.message}")
+
+
+        end_time=time.time()
+        end_ts = datetime.now(ZoneInfo("Asia/Kolkata"))
+        max_df_time = combined_df.agg({"_record_ingestion_ts": "max"}).collect()[0][0]
+        load_audit(spark,
+               combined_df,
+               batch_id,
+               target_table,
+               max_df_time,
+               start_ts,
+               end_ts)
         
         print(f"⏱️ Processing completed in {time.time() - start_time:.2f} seconds")
     
