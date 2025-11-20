@@ -413,7 +413,7 @@ def transform_stores():
 # COMMAND ----------
 
 
-# stores_qc_results = transform_stores()
+stores_qc_results = transform_stores()
 
 # COMMAND ----------
 

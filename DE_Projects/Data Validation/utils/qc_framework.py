@@ -562,6 +562,10 @@ def save_qc_results(spark: SparkSession,
     
     # Add batch_id
     results_df = results_df.withColumn("batch_id", lit(batch_id))
+    results_df = results_df.withColumn("row_count", col("row_count").cast("int"))
+    results_df = results_df.withColumn("failed_rows", col("failed_rows").cast("int"))
+    results_df = results_df.withColumn("timestamp", col("timestamp").cast("timestamp"))
+    results_df.printSchema()
     
     # Write to Delta table (append mode)
     results_df.write \

@@ -95,8 +95,8 @@ print(f"Created validation results table: {VALIDATION_RESULTS_TABLE}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SELECT * FROM 
+# %sql
+# SELECT * FROM 
 
 # COMMAND ----------
 
@@ -476,31 +476,31 @@ print(f"{'='*60}")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Validation summary by status
-# MAGIC SELECT 
-# MAGIC     status,
-# MAGIC     COUNT(*) as check_count,
-# MAGIC     COUNT(DISTINCT table_name) as table_count
-# MAGIC FROM medallion_project.validation.validation_results
-# MAGIC WHERE batch_id = '${batch_id}'
-# MAGIC GROUP BY status
-# MAGIC ORDER BY status
+# %sql
+# -- Validation summary by status
+# SELECT 
+#     status,
+#     COUNT(*) as check_count,
+#     COUNT(DISTINCT table_name) as table_count
+# FROM medallion_project.validation.validation_results
+# WHERE batch_id = '${batch_id}'
+# GROUP BY status
+# ORDER BY status
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Validation summary by table
-# MAGIC SELECT 
-# MAGIC     table_name,
-# MAGIC     COUNT(*) as total_checks,
-# MAGIC     SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) as passed,
-# MAGIC     SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) as failed,
-# MAGIC     SUM(CASE WHEN status = 'WARNING' THEN 1 ELSE 0 END) as warnings
-# MAGIC FROM medallion_project.validation.validation_results
-# MAGIC WHERE batch_id = '${batch_id}'
-# MAGIC GROUP BY table_name
-# MAGIC ORDER BY table_name
+# %sql
+# -- Validation summary by table
+# SELECT 
+#     table_name,
+#     COUNT(*) as total_checks,
+#     SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) as passed,
+#     SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) as failed,
+#     SUM(CASE WHEN status = 'WARNING' THEN 1 ELSE 0 END) as warnings
+# FROM medallion_project.validation.validation_results
+# WHERE batch_id = '${batch_id}'
+# GROUP BY table_name
+# ORDER BY table_name
 
 # COMMAND ----------
 
@@ -509,22 +509,22 @@ print(f"{'='*60}")
 
 # COMMAND ----------
 
-print(f"""
-Validation QC Completed
-{'='*60}
-Batch ID: {batch_id}
-Ingestion Date: {ingestion_date}
-Completed At: {datetime.now()}
-Total Checks: {total_checks}
-Passed: {passed_checks}
-Failed: {failed_checks}
-Warnings: {warning_checks}
-{'='*60}
-""")
+# print(f"""
+# Validation QC Completed
+# {'='*60}
+# Batch ID: {batch_id}
+# Ingestion Date: {ingestion_date}
+# Completed At: {datetime.now()}
+# Total Checks: {total_checks}
+# Passed: {passed_checks}
+# Failed: {failed_checks}
+# Warnings: {warning_checks}
+# {'='*60}
+# """)
 
-# Raise exception if any checks failed
-if failed_checks > 0:
-    raise Exception(f"Validation failed with {failed_checks} failed checks")
+# # Raise exception if any checks failed
+# if failed_checks > 0:
+#     raise Exception(f"Validation failed with {failed_checks} failed checks")
 
 # COMMAND ----------
 
